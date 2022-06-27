@@ -6,6 +6,7 @@ import os
 from typing import Optional, Any
 
 import flask
+import requests
 from azure.core.credentials import TokenCredential, AccessToken
 from azure.core.exceptions import HttpResponseError
 from azure.storage.blob import BlobServiceClient
@@ -81,13 +82,15 @@ def handle_refresh():
     _expires = int(parser.isoparse(request.headers['X-Ms-Token-Aad-Expires-On']).timestamp()) \
         if 'X-Ms-Token-Aad-Expires-On' in request.headers else \
         (datetime.datetime.now().timestamp() + 1000)
+    print(f"Got Cookie id: {request.headers['Cookie']}")
     if request.path != "/.auth/refresh" and _expires - datetime.datetime.now().timestamp() < 300:
-        return flask.redirect("/.auth/refresh", code=302)
+        print(f"Token Expires in {_expires}")
+        requests.get(f"{request.base_url}.auth/refresh", headers={"Cookie": request.headers['Cookie']})
 
 # For debugging
 @app.route(f"/.auth/refresh")
 def refresh():
-    return redirect(url_for(BASE, path='index.html'))
+    return ""
 
 @app.route(f"/{BASE}", defaults={'path': 'index.html'})
 @app.route(f"/{BASE}/<path:path>")
