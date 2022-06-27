@@ -82,6 +82,7 @@ def handle_refresh():
     _expires = int(parser.isoparse(request.headers['X-Ms-Token-Aad-Expires-On']).timestamp()) \
         if 'X-Ms-Token-Aad-Expires-On' in request.headers else \
         (datetime.datetime.now().timestamp() + 1000)
+    print(f"Refresh token is: {request.headers['X-Ms-Token-Aad-Refresh-Token']}")
     if request.path != "/.auth/refresh" and _expires - datetime.datetime.now().timestamp() < 300:
         print(f"Token Expires in {_expires - datetime.datetime.now().timestamp()}")
         req = f"{request.host_url}.auth/refresh"
@@ -93,11 +94,6 @@ def handle_refresh():
                                        'Content-Type': 'application/x-www-form-urlencoded'}, data=payload)
         print(f"Got: code:{r.status_code} | {r.text}")
 
-
-# For debugging
-@app.route(f"/.auth/refresh")
-def refresh():
-    return ""
 
 
 @app.route(f"/{BASE}", defaults={'path': 'index.html'})
