@@ -1,5 +1,6 @@
 import base64
 import datetime
+import logging
 import mimetypes
 import os
 from typing import Optional, Any
@@ -134,4 +135,5 @@ def web(path):
 
 
 if __name__ == '__main__':
+    app.logger.setLevel(logging.INFO)
     app.run()
