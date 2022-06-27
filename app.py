@@ -1,3 +1,4 @@
+import base64
 import codecs
 import datetime
 import mimetypes
@@ -7,9 +8,37 @@ from typing import Optional, Any
 from azure.core.credentials import TokenCredential, AccessToken
 from azure.storage.blob import BlobServiceClient
 from dateutil import parser
-from flask import Flask, request, redirect, url_for, send_from_directory, stream_with_context
+from flask import Flask, request, redirect, url_for, send_from_directory, stream_with_context, Response
 
 app = Flask(__name__)
+
+app_ico = """AAABAAEAEBAAAAEACABoBQAAFgAAACgAAAAQAAAAIAAAAAEACAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAABjfqAAYIOdAF6ImwBdipoAQJxxAFqPlwBAnXIAW4+YAECecgBAoHQAWJWUAEChdABApHYA
+VJuQAE6jiwBNpIoAQat6AEGsewBBr30ARq2DAEGxfwBBsn8AAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+AAAAFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYAABYWFhYWFhYWFhYWFhYWABYWFhYWFhYWFhYWFhYW
+FhYAFhYWFhYWFhYWFhYWFhYAFhYWFhYWFhYWFhYWDBUVAgAOFRUWFhYWFhYWBBIVFQcDBRUVFhYW
+FhYWBAkVFQ0BChUVFRUWFhYWFgQLFRUTDw0VFRUVFRYWFhYEBBIVFRUVFRUVFRUWFhYWFgQLFRUV
+FRUVFRUVFhYWFhYECBUVFRUVFRUVFhYWFhYWBAQRFRUVFRUVFhYWFhYWFhYEBhAUFRUVFRYWFhYW
+FhYWFhYWBAwVFhYWFhYWFhYWFhYWFhYWFhYWFhYWFv//AAD+fwAA/v8AAP9/AAD+/wAA8A8AAOAP
+AADABwAAwAMAAMADAADgAwAA4AcAAOAPAADwDwAA/j8AAP//AAA="""
+
+BASE='web'
 
 class HeaderToken(TokenCredential):
     def get_token(
@@ -17,7 +46,8 @@ class HeaderToken(TokenCredential):
     ) -> AccessToken:
         return AccessToken(
             token=request.headers[
-                'X-Ms-Token-Aad-Access-Token'] if 'X-Ms-Token-Aad-Access-Token' in request.headers else os.getenv('APP_OAUTH2_TOKEN'),
+                'X-Ms-Token-Aad-Access-Token'] if 'X-Ms-Token-Aad-Access-Token' in request.headers else os.getenv(
+                'APP_OAUTH2_TOKEN'),
             expires_on=int(parser.isoparse(request.headers[
                                                'X-Ms-Token-Aad-Expires-On']).timestamp()) if 'X-Ms-Token-Aad-Expires-On' in request.headers else (
                     datetime.datetime.now().timestamp() + 500))
@@ -25,24 +55,23 @@ class HeaderToken(TokenCredential):
 
 @app.route('/')
 def index():
-    return redirect(url_for('web', path='index.html'))
+    return redirect(url_for(BASE, path='index.html'))
 
 
 @app.route('/favicon.ico')
 def favicon():
-    return send_from_directory(os.path.join(app.root_path, 'static'),
-                               'favicon.ico', mimetype='image/vnd.microsoft.icon')
+    return Response(response=base64.b64decode(app_ico), status=200, mimetype='image/vnd.microsoft.icon')
 
 
-@app.route('/web', defaults={'path': 'index.html'})
-@app.route('/web/<path:path>')
+@app.route(f"/{BASE}", defaults={'path': 'index.html'})
+@app.route(f"/{BASE}/<path:path>")
 def web(path):
     def generate():
-        service = BlobServiceClient(account_url=os.getenv(key='APPLICATION_STORAGE_CONTAINER'),
+        service = BlobServiceClient(account_url=os.getenv(key='APPLICATION_STORAGE_ACCOUNT'),
                                     credential=HeaderToken())
-        blob_client = service.get_blob_client('mycontainer', path)
+        blob_client = service.get_blob_client(os.getenv(key='APPLICATION_STORAGE_CONTAINER'), path)
         stream = blob_client.download_blob()
-        for chunk in codecs.iterdecode(iterator=stream.chunks(), encoding='utf8'):
+        for chunk in stream.chunks():
             yield chunk
 
     mime = mimetypes.guess_type(path)
