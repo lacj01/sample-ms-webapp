@@ -1,29 +1,17 @@
 import base64
-import codecs
 import datetime
 import mimetypes
 import os
 from typing import Optional, Any
 
-import flask
 import requests
 from azure.core.credentials import TokenCredential, AccessToken
 from azure.core.exceptions import HttpResponseError
 from azure.storage.blob import BlobServiceClient
 from dateutil import parser
-from flask import Flask, request, redirect, url_for, send_from_directory, stream_with_context, Response
+from flask import Flask, request, redirect, url_for, stream_with_context, Response
 
-
-class localFlask(Flask):
-
-    def process_response(self, response):
-        response.headers.remove('Server')
-        response.headers['Server'] = os.getenv('APP_SERVER_NAME', 'Unknown')
-        super(localFlask, self).process_response(response)
-        return (response)
-
-
-app = localFlask(__name__)
+app = Flask(__name__)
 
 app_ico = """AAABAAEAEBAAAAEACABoBQAAFgAAACgAAAAQAAAAIAAAAAEACAAAAAAAAAAAAAAAAAAAAAAAAAAA
 AAAAAABjfqAAYIOdAF6ImwBdipoAQJxxAFqPlwBAnXIAW4+YAECecgBAoHQAWJWUAEChdABApHYA
@@ -79,14 +67,23 @@ def favicon():
 
 @app.before_request
 def handle_refresh():
+    # If there is not refresh, then we cannot refresh.
+    # This happens when the offline_access is disabled.
+    if 'X-MS-TOKEN-AAD-REFRESH-TOKEN' not in request.headers:
+        return
     _expires = int(parser.isoparse(request.headers['X-Ms-Token-Aad-Expires-On']).timestamp()) \
         if 'X-Ms-Token-Aad-Expires-On' in request.headers else \
         (datetime.datetime.now().timestamp() + 1000)
     ttl = _expires - datetime.datetime.now().timestamp()
     if 'Cookie' in request.headers and ttl < 300:
+        app.logger.info(f"Session is about to expired in {ttl}: Refreshing")
+        # I use the cookie to refresh the token on behalf of the user. Took me forever to find out how to do this
+        # from the backend.
         req = f"https://{request.host}/.auth/refresh"
         requests.get(req, headers={'Cookie': request.headers['Cookie']})
+    # If the session is about to expire, let's force a refresh of the webpage to get a recent token.
     if ttl < 30:
+        app.logger.info(f"Session is expired or very closed to expire: force reload {ttl}")
         return redirect(request.url)
 
 
