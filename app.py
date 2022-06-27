@@ -84,8 +84,9 @@ def handle_refresh():
         (datetime.datetime.now().timestamp() + 1000)
     print(f"Got Cookie id: {request.headers['Cookie']}")
     if request.path != "/.auth/refresh" and _expires - datetime.datetime.now().timestamp() < 300:
-        print(f"Token Expires in {_expires}")
-        requests.get(f"{request.base_url}.auth/refresh", headers={"Cookie": request.headers['Cookie']})
+        print(f"Token Expires in { _expires - datetime.datetime.now().timestamp()}")
+        r=requests.get(f"{request.base_url}.auth/refresh", headers={"Cookie": request.headers['Cookie']})
+        print(f"Got: code:{r.status_code} | {r.text}")
 
 # For debugging
 @app.route(f"/.auth/refresh")
