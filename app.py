@@ -82,12 +82,13 @@ def handle_refresh():
     _expires = int(parser.isoparse(request.headers['X-Ms-Token-Aad-Expires-On']).timestamp()) \
         if 'X-Ms-Token-Aad-Expires-On' in request.headers else \
         (datetime.datetime.now().timestamp() + 1000)
-    if _expires - datetime.datetime.now().timestamp() < 5000:
-        print(f"Token Expires in {_expires - datetime.datetime.now().timestamp()}")
+    ttl = _expires - datetime.datetime.now().timestamp()
+    if 'Cookie' in request.headers and ttl < 300:
         req = f"https://{request.host}/.auth/refresh"
-        print(f"Connecting to: {req}")
-        r = requests.get(req, headers={'Cookie': request.headers['Cookie']})
-        print(f"Got: code:{r.status_code} | {r.text}")
+        requests.get(req, headers={'Cookie': request.headers['Cookie']})
+    if ttl < 30:
+        return redirect(request.url)
+
 
 @app.route(f"/{BASE}", defaults={'path': 'index.html'})
 @app.route(f"/{BASE}/<path:path>")
