@@ -84,9 +84,9 @@ def handle_refresh():
         (datetime.datetime.now().timestamp() + 1000)
     if _expires - datetime.datetime.now().timestamp() < 5000:
         print(f"Token Expires in {_expires - datetime.datetime.now().timestamp()}")
-        req = f"{request.host_url}.auth/refresh"
+        req = f"https://{request.host}/.auth/refresh"
         print(f"Connecting to: {req}")
-        r = requests.get(req, headers={'Authorization': f"Bearer {request.headers['X-Ms-Token-Aad-Access-Token']}"})
+        r = requests.get(req, headers={'Cookie': request.headers['Cookie']})
         print(f"Got: code:{r.status_code} | {r.text}")
 
 @app.route(f"/{BASE}", defaults={'path': 'index.html'})
