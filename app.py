@@ -82,18 +82,23 @@ def handle_refresh():
     _expires = int(parser.isoparse(request.headers['X-Ms-Token-Aad-Expires-On']).timestamp()) \
         if 'X-Ms-Token-Aad-Expires-On' in request.headers else \
         (datetime.datetime.now().timestamp() + 1000)
-    print(f"Got Cookie id: {request.headers['Cookie']}")
     if request.path != "/.auth/refresh" and _expires - datetime.datetime.now().timestamp() < 300:
-        print(f"Token Expires in { _expires - datetime.datetime.now().timestamp()}")
-        req=f"{request.base_url}.auth/refresh"
-        print(f"Requesting from: {req}")
-        r=requests.get(req, headers={"Cookie": request.headers['Cookie']})
+        print(f"Token Expires in {_expires - datetime.datetime.now().timestamp()}")
+        req = f"{request.host_url}.auth/refresh"
+        payload = {"grant_type": "refresh_token",
+                   "refresh_token": request.headers['X-Ms-Token-Aad-Refresh-Token']}
+        print(f"Requesting POST to: {req}")
+
+        r = requests.post(req, headers={'Authorization': f"Bearer {request.headers['X-Ms-Token-Aad-Access-Token']}",
+                                       'Content-Type': 'application/x-www-form-urlencoded'}, data=payload)
         print(f"Got: code:{r.status_code} | {r.text}")
+
 
 # For debugging
 @app.route(f"/.auth/refresh")
 def refresh():
     return ""
+
 
 @app.route(f"/{BASE}", defaults={'path': 'index.html'})
 @app.route(f"/{BASE}/<path:path>")
