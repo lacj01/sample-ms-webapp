@@ -4,66 +4,45 @@ import logging
 import mimetypes
 import os
 from typing import Optional, Any
+from pathlib import PurePosixPath
 
+import flask
 import requests
 from azure.core.credentials import TokenCredential, AccessToken
 from azure.core.exceptions import HttpResponseError
-from azure.storage.blob import BlobServiceClient
+from azure.identity import ChainedTokenCredential, InteractiveBrowserCredential, CredentialUnavailableError, \
+    AzureCliCredential, DefaultAzureCredential
+from azure.storage.blob import BlobServiceClient, ContainerClient
 from dateutil import parser
 from flask import Flask, request, redirect, url_for, stream_with_context, Response
 
 app = Flask(__name__)
-
-app_ico = """AAABAAEAEBAAAAEACABoBQAAFgAAACgAAAAQAAAAIAAAAAEACAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAABjfqAAYIOdAF6ImwBdipoAQJxxAFqPlwBAnXIAW4+YAECecgBAoHQAWJWUAEChdABApHYA
-VJuQAE6jiwBNpIoAQat6AEGsewBBr30ARq2DAEGxfwBBsn8AAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-AAAAFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYAABYWFhYWFhYWFhYWFhYWABYWFhYWFhYWFhYWFhYW
-FhYAFhYWFhYWFhYWFhYWFhYAFhYWFhYWFhYWFhYWDBUVAgAOFRUWFhYWFhYWBBIVFQcDBRUVFhYW
-FhYWBAkVFQ0BChUVFRUWFhYWFgQLFRUTDw0VFRUVFRYWFhYEBBIVFRUVFRUVFRUWFhYWFgQLFRUV
-FRUVFRUVFhYWFhYECBUVFRUVFRUVFhYWFhYWBAQRFRUVFRUVFhYWFhYWFhYEBhAUFRUVFRYWFhYW
-FhYWFhYWBAwVFhYWFhYWFhYWFhYWFhYWFhYWFhYWFv//AAD+fwAA/v8AAP9/AAD+/wAA8A8AAOAP
-AADABwAAwAMAAMADAADgAwAA4AcAAOAPAADwDwAA/j8AAP//AAA="""
-
-BASE = 'web'
 
 
 class HeaderToken(TokenCredential):
     def get_token(
             self, *scopes: str, claims: Optional[str] = None, tenant_id: Optional[str] = None, **kwargs: Any
     ) -> AccessToken:
+        if 'X-Ms-Token-Aad-Access-Token' not in request.headers:
+            raise CredentialUnavailableError()
         return AccessToken(
-            token=request.headers[
-                'X-Ms-Token-Aad-Access-Token'] if 'X-Ms-Token-Aad-Access-Token' in request.headers else os.getenv(
-                'APP_OAUTH2_TOKEN'),
-            expires_on=int(parser.isoparse(request.headers[
-                                               'X-Ms-Token-Aad-Expires-On']).timestamp()) if 'X-Ms-Token-Aad-Expires-On' in request.headers else (
-                    datetime.datetime.now().timestamp() + 1000))
+            token=request.headers['X-Ms-Token-Aad-Access-Token'],
+            expires_on=int(parser.isoparse(request.headers['X-Ms-Token-Aad-Expires-On']).timestamp()))
 
+
+BASE = os.getenv('BASE_URL', 'web')
+TOKEN_CREDENTIAL_SOURCE = ChainedTokenCredential(HeaderToken(),
+                                                 InteractiveBrowserCredential(tenant_id=os.getenv('AZURE_TENANT_ID','00000000-0000-0000-0000-000000000000')),
+                                                 AzureCliCredential())
 
 @app.route('/')
 def index():
-    return redirect(url_for(BASE, path='index.html'))
+    return redirect(url_for(BASE, path='/'))
 
 
 @app.route('/favicon.ico')
 def favicon():
-    return Response(response=base64.b64decode(app_ico), status=200, mimetype='image/vnd.microsoft.icon')
+    return flask.send_file('tree.ico', download_name='favicon.ico', mimetype='image/vnd.microsoft.icon')
 
 
 @app.before_request
@@ -88,12 +67,25 @@ def handle_refresh():
         return redirect(request.url)
 
 
-@app.route(f"/{BASE}", defaults={'path': 'index.html'})
+def try_handle_listing(container_client: ContainerClient, path: str):
+    if not path.endswith('/'):
+        path = path + '/'
+    if path == '/':
+        path = ''
+    return flask.render_template(template_name_or_list='index.html.j2',
+                                 PurePosixPath=PurePosixPath,
+                                 basename=BASE, basepath=path,
+                                 walker=container_client.walk_blobs(name_starts_with=path, delimiter='/'))
+
+
+@app.route(f"/{BASE}/", defaults={'path': '/'})
+@app.route(f"/{BASE}", defaults={'path': '/'})
 @app.route(f"/{BASE}/<path:path>")
 def web(path):
-    service = BlobServiceClient(account_url=os.getenv(key='APPLICATION_STORAGE_ACCOUNT'),
-                                credential=HeaderToken())
-    blob_client = service.get_blob_client(os.getenv(key='APPLICATION_STORAGE_CONTAINER'), path)
+    container_client = ContainerClient(account_url=os.getenv(key='APPLICATION_STORAGE_ACCOUNT'),
+                                       container_name=os.getenv(key='APPLICATION_STORAGE_CONTAINER'),
+                                       credential=TOKEN_CREDENTIAL_SOURCE)
+    blob_client = container_client.get_blob_client(blob=path)
     try:
         stream = blob_client.download_blob()
         blob_properties = blob_client.get_blob_properties()
@@ -131,9 +123,14 @@ def web(path):
         return r
 
     except HttpResponseError as ex:
-        return Response(response=ex.reason, status=ex.status_code, mimetype='text/plain')
+        try:
+            if ex.status_code == 404:
+                return try_handle_listing(container_client, path)
+            else:
+                return Response(response=ex.reason, status=ex.status_code, mimetype='text/plain')
+        except HttpResponseError as ex2:
+            return Response(response=ex2.reason, status=ex2.status_code, mimetype='text/plain')
 
 
 if __name__ == '__main__':
-    app.logger.setLevel(logging.INFO)
     app.run()

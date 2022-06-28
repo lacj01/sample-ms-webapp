@@ -1,0 +1,16 @@
+<html lang="en">
+<body>
+
+<h2>File Listing for: {{ PurePosixPath("/"+basepath).__str__() }}</h2>
+<ul>
+    {% if basepath != '' %}
+        <li><a href="{{ PurePosixPath("/"+basename+"/"+basepath).parent }}">..</a></li>
+    {% endif %}
+    {% for item in walker %}
+        <li>
+            <a href="{{ "/"+basename+"/"+item.name }}">{{ PurePosixPath(item.name).name + ('/' if item.name.endswith('/') else '') }}</a>
+        </li>
+    {% endfor %}
+</ul>
+</body>
+</html>
